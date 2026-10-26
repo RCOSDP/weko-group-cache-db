@@ -264,7 +264,7 @@ def check_existence_file(institution: Institution) -> bool:
 class Institution(BaseModel):
     """Institution model for loading from TOML file."""
 
-    name: str | None
+    name: str | None = None
     """Name of the institution. Optional."""
 
     fqdn: str

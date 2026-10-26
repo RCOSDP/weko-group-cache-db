@@ -100,7 +100,7 @@ $ wgcd run --help
 1つの機関に接続しているグループ情報を取得し、キャッシュDBへ登録する。  
 マウントされたディレクトリからFQDNリストファイルとSSL証明書・SSL鍵ファイルを使用して実行するディレクトリベースの実行方法と、機関情報を記述したTOMLファイルを使用して実行するファイルベースの実行方法がある。
 
-### ヘルプ表示
+#### ヘルプ表示
 
 ```
 $ wgcd one --help
@@ -208,7 +208,6 @@ $ wgcd one --help
 
 ### カスタム設定値
 [config.toml](./config.toml)に設定値を記載することで、実行時に設定値を反映して実行することが可能。  
-また、環境変数、`.env`ファイル、Kubernetesのシークレットマウントによっても設定値を反映することが可能。
 
 `MAP_GROUPS_API_ENDPOINT`以外はデフォルトの設定値があるため、それ以外は必要に応じて上書きしたい設定値のみを記載すればよい。  
 `config.toml`に記述する場合、大文字小文字は区別されない.
@@ -227,7 +226,7 @@ $ wgcd one --help
 | REQUEST_RETRY_BASE      | 数値   | 4               | グループ情報取得・キャッシュDBへの登録処理のリトライ時の指数バックオフの基準時間（秒）   |
 | REQUEST_RETRY_FACTOR    | 数値   | 5               | グループ情報取得・キャッシュDBへの登録処理のリトライ時の指数バックオフの係数（秒）       |
 | REQUEST_RETRY_MAX       | 数値   | 90              | グループ情報取得・キャッシュDBへの登録処理のリトライ時の指数バックオフの最大時間（秒）   |
-| REDIS_TYPE              | 文字列 | redis           | 使用するRedisの種類<br>"RedisCache", "RedisSentinelCache"のうちから指定                  |
+| REDIS_TYPE              | 文字列 | RedisCache      | 使用するRedisの種類<br>"RedisCache", "RedisSentinelCache"のうちから指定                  |
 | REDIS_HOST              | 文字列 | localhost       | Redisのホスト名                                                                          |
 | REDIS_PORT              | 数値   | 6379            | Redisのポート番号                                                                        |
 | REDIS_DB_INDEX          | 数値   | 4               | グループ情報を格納するRedisのDBインデックス                                              |
@@ -239,15 +238,15 @@ $ wgcd one --help
 ※ Redis Sentinel の設定値をTOMLファイルに記載する場合の例
 ```
 [[sentinels]]
-host = "sendinel-1"
+host = "sentinel-1"
 port = 26379
 
 [[sentinels]]
-host = "sendinel-2"
+host = "sentinel-2"
 port = 26378
 
 [[sentinels]]
-host = "sendinel-3"
+host = "sentinel-3"
 port = 26377
 ```
 
@@ -255,9 +254,48 @@ port = 26377
 
 1. TOMLファイル
 2. 環境変数
-3. `.env`ファイル
-4. Kubernetesのシークレットマウント
-5. デフォルト値（`MAP_GROUPS_API_ENDPOINT`以外）
+3. デフォルト値（`MAP_GROUPS_API_ENDPOINT`以外）
+
+
+## シグナル
+
+[blinker](https://blinker.readthedocs.io/) のシグナルにより、処理の進捗と各機関の処理結果を外部から受け取ることができる。
+
+```python
+from weko_group_cache_db.signals import executed_signal, progress_signal
+
+@progress_signal.connect
+def on_progress(sender, data):
+    print(f"{data.status}: {data.done}/{data.total}")
+```
+
+| シグナル          | 送信タイミング                                            | 対象コマンド   | データ型       |
+| ----------------- | --------------------------------------------------------- | -------------- | -------------- |
+| `progress_signal` | 各機関の処理開始前、および全機関の処理完了後              | `run`          | `ProgressData` |
+| `executed_signal` | 各機関の処理の試行ごと（リトライを含む）の成功時・失敗時  | `run`, `one`   | `ExecutedData` |
+
+### progress_signal
+
+| 項目      | 型     | 説明                                                                 |
+| --------- | ------ | -------------------------------------------------------------------- |
+| `status`  | 文字列 | `started`：最初の機関の処理開始前<br>`in_progress`：2件目以降の機関の処理開始前<br>`completed`：全機関の処理完了後（失敗した機関があっても送信される） |
+| `total`   | 数値   | 処理対象の機関数                                                     |
+| `done`    | 数値   | 処理済みの機関数                                                     |
+| `current` | 文字列 | これから処理する機関のFQDN（`completed` の場合は `N/A`）             |
+
+### executed_signal
+
+| 項目            | 型       | 説明                                                                 |
+| --------------- | -------- | -------------------------------------------------------------------- |
+| `fqdn`          | 文字列   | 機関のFQDN                                                           |
+| `status`        | 文字列   | `success`：グループ情報のRedisへの登録に成功<br>`failed`：グループ情報の取得またはRedisへの登録に失敗 |
+| `retries`       | 数値     | その試行までのリトライ回数（初回の試行は 0）                         |
+| `error_type`    | 文字列   | 失敗時の例外クラス名（成功時は `None`）                              |
+| `error_message` | 文字列   | 失敗時のエラーメッセージ（成功時は `None`）                          |
+| `updated_at`    | 日時     | 成功時はRedisへの登録日時、失敗時はシグナルの送信日時（UTC）         |
+
+※ `failed` はリトライのたびに送信される。
+
 
 ## 開発環境構築
 
