@@ -526,7 +526,7 @@ wheels = [
 [[package]]
 name = "weko-group-cache-db"
 version = "1.0.0rc6"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "backoff" },
     { name = "blinker" },
