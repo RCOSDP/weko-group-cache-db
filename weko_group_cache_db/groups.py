@@ -22,9 +22,11 @@ from .exc import UpdateError
 from .loader import Institution, InstitutionSource, load_institutions
 from .logger import console, logger
 from .redis import connection
+from .signals import ExecutedData, ProgressData, executed_signal, progress_signal
 
 if t.TYPE_CHECKING:
-    from redis import Redis  # pragma: no cover
+    from backoff.types import Details
+    from redis import Redis
 
 
 def fetch_all(**kwargs: t.Unpack[InstitutionSource]):
@@ -61,6 +63,8 @@ def fetch_all(**kwargs: t.Unpack[InstitutionSource]):
         )
 
         for index, institution in enumerate(institutions):
+            _send_progress_signal(institutions, index)
+
             try:
                 group_count = fetch_and_cache()(institution, store)
                 logger.info(
@@ -80,6 +84,8 @@ def fetch_all(**kwargs: t.Unpack[InstitutionSource]):
 
             if index != total - 1:
                 time.sleep(config.REQUEST_INTERVAL)
+
+    _send_progress_signal(institutions, total)
 
     if exceptions:
         error_message = "Failed to update information from %d institution(s)."
@@ -137,6 +143,16 @@ def fetch_and_cache():
 
     """
 
+    def _count(details: Details) -> None:
+        """Update the retry count based on backoff details.
+
+        Arguments:
+            details (Details): Details from backoff.
+
+        """
+        nonlocal retries
+        retries = details.get("tries", 0)
+
     @backoff.on_exception(
         lambda: backoff.expo(
             base=config.REQUEST_RETRY_BASE,
@@ -146,25 +162,33 @@ def fetch_and_cache():
         (requests.RequestException, redis.RedisError),
         max_tries=config.REQUEST_RETRIES + 1,
         jitter=backoff.full_jitter,
+        on_backoff=_count,
     )
     def _retrieve_fetch_and_cache(institution: Institution, store: Redis) -> int:
+        nonlocal retries
         try:
             group_ids = fetch_map_groups(institution)
-            set_groups_to_redis(institution.fqdn, group_ids, store=store)
+            updated_at = set_groups_to_redis(institution.fqdn, group_ids, store=store)
+            _send_executed_signal(
+                institution, "success", retries=retries, updated_at=updated_at
+            )
             return len(group_ids)
-        except requests.RequestException:
+        except requests.RequestException as ex:
             logger.warning(
                 "Failed to fetch groups from mAP API for institution: %s",
                 institution.fqdn,
             )
+            _send_executed_signal(institution, "failed", retries=retries, error=ex)
             raise
-        except redis.RedisError:
+        except redis.RedisError as ex:
             logger.warning(
                 "Failed to cache groups to Redis for institution: %s",
                 institution.fqdn,
             )
+            _send_executed_signal(institution, "failed", retries=retries, error=ex)
             raise
 
+    retries = 0
     return _retrieve_fetch_and_cache
 
 
@@ -195,7 +219,9 @@ def fetch_map_groups(institution: Institution) -> list[str]:
     return group_ids
 
 
-def set_groups_to_redis(fqdn: str, group_ids: list[str], *, store: Redis | None = None):
+def set_groups_to_redis(
+    fqdn: str, group_ids: list[str], *, store: Redis | None = None
+) -> datetime:
     """Set groups to redis.
 
     Arguments:
@@ -204,10 +230,13 @@ def set_groups_to_redis(fqdn: str, group_ids: list[str], *, store: Redis | None 
         store(Redis | None):
             Redis store object. If None, a new connection will be established.
 
+    Returns:
+        datetime: The timestamp when the groups were cached.
+
     """
-    transformed_fqdn = fqdn.replace(".", "_").replace("-", "_")
-    redis_key = transformed_fqdn + config.CACHE_KEY_SUFFIX
-    updated_at = datetime.now(UTC).isoformat(timespec="seconds")
+    redis_key = cache_key(fqdn)
+    now = datetime.now(UTC)
+    updated_at = now.isoformat(timespec="seconds")
 
     if store is None:
         store = connection()
@@ -218,3 +247,59 @@ def set_groups_to_redis(fqdn: str, group_ids: list[str], *, store: Redis | None 
     store.persist(redis_key)
     if config.CACHE_TTL >= 0:
         store.expire(redis_key, config.CACHE_TTL)
+
+    return now
+
+
+def cache_key(fqdn: str) -> str:
+    """Generate the Redis key for the given FQDN.
+
+    Arguments:
+        fqdn (str): FQDN of the institution.
+
+    Returns:
+        str: Redis key for the institution's groups.
+
+    """
+    transformed_fqdn = fqdn.replace(".", "_").replace("-", "_")
+    return transformed_fqdn + config.CACHE_KEY_SUFFIX
+
+
+def _send_progress_signal(institutions: list[Institution], index: int) -> None:
+    total = len(institutions)
+    if index >= total:
+        status = "completed"
+    elif index > 0:
+        status = "in_progress"
+    else:
+        status = "started"
+    current = institutions[index].fqdn if index < total else "N/A"
+
+    data = ProgressData(status=status, total=total, done=index, current=current)
+
+    try:
+        progress_signal.send(fetch_all, data=data)
+    except Exception:  # ruff: ignore[blind-except]
+        traceback.print_exc()
+
+
+def _send_executed_signal(
+    institution: Institution,
+    status: t.Literal["success", "failed"],
+    updated_at: datetime | None = None,
+    retries: int = 0,
+    error: Exception | None = None,
+) -> None:
+    data = ExecutedData(
+        fqdn=institution.fqdn,
+        status=status,
+        retries=retries,
+        error_type=type(error).__name__ if error else None,
+        error_message=str(error) if error else None,
+        updated_at=updated_at or datetime.now(UTC),
+    )
+
+    try:
+        executed_signal.send(fetch_all, data=data)
+    except Exception:  # ruff: ignore[blind-except]
+        traceback.print_exc()

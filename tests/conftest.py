@@ -51,7 +51,7 @@ def row_config():
         "REQUEST_RETRY_BASE": 2,
         "REQUEST_RETRY_FACTOR": 15,
         "REQUEST_RETRY_MAX": 60,
-        "REDIS_TYPE": "sentinel",
+        "REDIS_TYPE": "RedisSentinelCache",
         "REDIS_HOST": "redis",
         "REDIS_PORT": 26379,
         "REDIS_DB_INDEX": 2,

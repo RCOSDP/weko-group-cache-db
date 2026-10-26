@@ -16,7 +16,7 @@ from weko_group_cache_db.redis import _redis_connection, _sentinel_connection, c
 
 # def connection() -> Redis:
 def test_connection_redis(set_test_config, log_capture: pytest.LogCaptureFixture):
-    set_test_config(REDIS_TYPE="redis")
+    set_test_config(REDIS_TYPE="RedisCache")
     with patch("weko_group_cache_db.redis._redis_connection") as mock_redis_connection:
         mock_redis_connection.return_value = MagicMock(spec=redis.Redis)
         store = connection()
@@ -28,7 +28,7 @@ def test_connection_redis(set_test_config, log_capture: pytest.LogCaptureFixture
 
 
 def test_connection_sentinel(set_test_config, log_capture: pytest.LogCaptureFixture):
-    set_test_config(REDIS_TYPE="sentinel")
+    set_test_config(REDIS_TYPE="RedisSentinelCache")
     with patch("weko_group_cache_db.redis._sentinel_connection") as mock_sentinel_connection:
         mock_sentinel_connection.return_value = MagicMock(spec=redis.Redis)
         store = connection()
@@ -40,7 +40,7 @@ def test_connection_sentinel(set_test_config, log_capture: pytest.LogCaptureFixt
 
 
 def test_connection_catch_value_error(set_test_config, log_capture: pytest.LogCaptureFixture):
-    set_test_config(REDIS_TYPE="redis")
+    set_test_config(REDIS_TYPE="RedisCache")
     with patch("weko_group_cache_db.redis._redis_connection") as mock_redis_connection:
         mock_redis_connection.side_effect = ValueError("Test ValueError")
         with pytest.raises(ValueError, match="Test ValueError"):
@@ -50,7 +50,7 @@ def test_connection_catch_value_error(set_test_config, log_capture: pytest.LogCa
 
 
 def test_connection_catch_connection_error(set_test_config, log_capture: pytest.LogCaptureFixture):
-    set_test_config(REDIS_TYPE="redis")
+    set_test_config(REDIS_TYPE="RedisCache")
     with patch("weko_group_cache_db.redis._redis_connection") as mock_redis_connection:
         mock_store = MagicMock(spec=redis.Redis)
         mock_store.ping.side_effect = RedisConnectionError("Test ConnectionError")

@@ -24,7 +24,7 @@ class UpdateError(WekoGroupCacheDbError):
         self.fqdn = fqdn
         self.origin = origin
 
-    def __str__(self) -> str:  # noqa: D105
+    def __str__(self) -> str:  # ruff: ignore[undocumented-magic-method]
         return f"FQDN: {self.fqdn}, {self.origin}"
 
 

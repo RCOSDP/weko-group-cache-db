@@ -18,7 +18,7 @@
 # cache_ttl = 86400
 
 # === Map groups API endpoint. ===
-map_groups_api_endpoint = "https://sample.gakunin.jp/api/groups/"
+map_groups_api_endpoint = "https://sptest.cg.gakunin.jp/api/groups/"
 
 # === Request timeout (in seconds) when connecting to mAP API. ===
 # request_timeout = 20
@@ -42,8 +42,8 @@ map_groups_api_endpoint = "https://sample.gakunin.jp/api/groups/"
 # === Maximum time (in seconds) for exponential backoff during request retries. ===
 # request_retry_max = 90
 
-# === Redis type to use. `redis` or `sentinel` is allowed. ===
-# redis_type = "redis"
+# === Redis type to use. `RedisCache` or `RedisSentinelCache` is allowed. ===
+# redis_type = "RedisCache"
 
 # === Redis service host name. ===
 # redis_host = "localhost"

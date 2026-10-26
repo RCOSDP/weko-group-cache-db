@@ -12,6 +12,7 @@ import requests
 from weko_group_cache_db.exc import UpdateError
 from weko_group_cache_db.groups import fetch_all, fetch_and_cache, fetch_map_groups, fetch_one, set_groups_to_redis
 from weko_group_cache_db.loader import Institution
+from weko_group_cache_db.signals import executed_signal, progress_signal
 
 
 def test_fetch_all_success_toml(institutions_data, set_test_config, log_capture):
@@ -21,11 +22,13 @@ def test_fetch_all_success_toml(institutions_data, set_test_config, log_capture)
     set_test_config()
 
     mock_store = MagicMock()
+    mock_receiver = MagicMock()
     with (
         patch("weko_group_cache_db.groups.connection", return_value=mock_store),
         patch("weko_group_cache_db.groups.load_institutions") as mock_load,
         patch("weko_group_cache_db.groups.fetch_and_cache") as mock_fetch_and_cache,
         patch("weko_group_cache_db.groups.time") as mock_time,
+        progress_signal.connected_to(mock_receiver),
     ):
         mock_load.return_value = institutions
         mock_func = MagicMock(side_effect=[2, 3])
@@ -40,6 +43,13 @@ def test_fetch_all_success_toml(institutions_data, set_test_config, log_capture)
     assert log_capture.records[0].getMessage() == f"Successfully cached 2 groups for {data[0]['fqdn']}."
     assert log_capture.records[1].getMessage() == f"Successfully cached 3 groups for {data[1]['fqdn']}."
     mock_time.sleep.assert_called_once()
+    assert mock_receiver.call_count == num_institutions + 1
+    assert all(call.args == (fetch_all,) for call in mock_receiver.call_args_list)
+    sent = [call.kwargs["data"] for call in mock_receiver.call_args_list]
+    assert [d.status for d in sent] == ["started", "in_progress", "completed"]
+    assert [d.done for d in sent] == [0, 1, 2]
+    assert [d.current for d in sent] == [data[0]["fqdn"], data[1]["fqdn"], "N/A"]
+    assert all(d.total == num_institutions for d in sent)
 
 
 def test_fetch_all_success_directory(institutions_data, set_test_config, log_capture):
@@ -87,11 +97,13 @@ def test_fetch_all_request_error(institutions_data, set_test_config, log_capture
 
     test_config = set_test_config()
     mock_store = MagicMock()
+    mock_receiver = MagicMock()
     with (
         patch("weko_group_cache_db.groups.connection", return_value=mock_store),
         patch("weko_group_cache_db.groups.load_institutions", return_value=institutions),
         patch("weko_group_cache_db.groups.fetch_and_cache") as mock_fetch_and_cache,
         patch("weko_group_cache_db.groups.time"),
+        progress_signal.connected_to(mock_receiver),
     ):
         num_groups = 2
         mock_func = MagicMock(side_effect=[num_groups, requests.RequestException("Request failed")])
@@ -111,6 +123,10 @@ def test_fetch_all_request_error(institutions_data, set_test_config, log_capture
     assert isinstance(error_instance, UpdateError)
     assert isinstance(error_instance.origin, requests.RequestException)
     assert str(error_instance) == f"FQDN: {data[1]['fqdn']}, Request failed"
+    sent = [call.kwargs["data"] for call in mock_receiver.call_args_list]
+    assert [d.status for d in sent] == ["started", "in_progress", "completed"]
+    assert [d.done for d in sent] == [0, 1, 2]
+    assert [d.current for d in sent] == [data[0]["fqdn"], data[1]["fqdn"], "N/A"]
 
 
 def test_fetch_all_redis_error(institutions_data, set_test_config, log_capture):
@@ -254,13 +270,17 @@ def test_fetch_and_cache_success(institutions_data, set_test_config):
     institution = Institution(**data[0])
     set_test_config()
     groups = ["jc_group1", "jc_group2"]
+    updated_at = datetime(2025, 1, 1, tzinfo=UTC)
 
     mock_store = MagicMock()
+    mock_receiver = MagicMock()
     with (
         patch("weko_group_cache_db.groups.fetch_map_groups") as mock_fetch,
         patch("weko_group_cache_db.groups.set_groups_to_redis") as mock_set,
+        executed_signal.connected_to(mock_receiver),
     ):
         mock_fetch.return_value = groups
+        mock_set.return_value = updated_at
 
         func = fetch_and_cache()
         count = func(institution, mock_store)
@@ -268,6 +288,15 @@ def test_fetch_and_cache_success(institutions_data, set_test_config):
     assert count == len(groups)
     mock_fetch.assert_called_once_with(institution)
     mock_set.assert_called_once_with(institution.fqdn, groups, store=mock_store)
+    mock_receiver.assert_called_once()
+    assert mock_receiver.call_args.args == (fetch_all,)
+    sent = mock_receiver.call_args.kwargs["data"]
+    assert sent.fqdn == institution.fqdn
+    assert sent.status == "success"
+    assert sent.retries == 0
+    assert sent.error_type is None
+    assert sent.error_message is None
+    assert sent.updated_at == updated_at
 
 
 def test_fetch_and_cache_all_request_exception(institutions_data, set_test_config, log_capture):
@@ -276,9 +305,11 @@ def test_fetch_and_cache_all_request_exception(institutions_data, set_test_confi
     test_config = set_test_config(REQUEST_RETRY_FACTOR=0, REQUEST_RETRIES=2)
 
     mock_store = MagicMock()
+    mock_receiver = MagicMock()
     with (
         patch("weko_group_cache_db.groups.fetch_map_groups") as mock_fetch,
         patch("weko_group_cache_db.groups.set_groups_to_redis") as mock_set,
+        executed_signal.connected_to(mock_receiver),
     ):
         mock_fetch.side_effect = requests.RequestException("Request failed")
 
@@ -292,6 +323,13 @@ def test_fetch_and_cache_all_request_exception(institutions_data, set_test_confi
         record.getMessage() == f"Failed to fetch groups from mAP API for institution: {institution.fqdn}"
         for record in log_capture.records
     )
+    assert mock_receiver.call_count == test_config.REQUEST_RETRIES + 1
+    sent = [call.kwargs["data"] for call in mock_receiver.call_args_list]
+    assert all(d.fqdn == institution.fqdn for d in sent)
+    assert all(d.status == "failed" for d in sent)
+    assert [d.retries for d in sent] == [0, 1, 2]
+    assert all(d.error_type == "RequestException" for d in sent)
+    assert all(d.error_message == "Request failed" for d in sent)
 
 
 def test_fetch_and_cache_all_redis_error(institutions_data, set_test_config, log_capture):
@@ -327,9 +365,11 @@ def test_fetch_and_cache_success_after_retries(institutions_data, set_test_confi
     groups = ["jc_group1", "jc_group2"]
 
     mock_store = MagicMock()
+    mock_receiver = MagicMock()
     with (
         patch("weko_group_cache_db.groups.fetch_map_groups") as mock_fetch,
         patch("weko_group_cache_db.groups.set_groups_to_redis") as mock_set,
+        executed_signal.connected_to(mock_receiver),
     ):
         retries_fetch = 2
         mock_fetch.side_effect = [requests.RequestException("Request failed"), groups, groups]
@@ -346,6 +386,11 @@ def test_fetch_and_cache_success_after_retries(institutions_data, set_test_confi
         record.getMessage() == f"Failed to cache groups to Redis for institution: {institution.fqdn}"
         for record in log_capture.records
     )
+    sent = [call.kwargs["data"] for call in mock_receiver.call_args_list]
+    assert [d.status for d in sent] == ["failed", "failed", "success"]
+    assert [d.retries for d in sent] == [0, 1, 2]
+    assert [d.error_type for d in sent] == ["RequestException", "RedisError", None]
+    assert [d.error_message for d in sent] == ["Request failed", "Cache error", None]
 
 
 def test_fetch_map_groups(institutions_data, set_test_config):
@@ -438,3 +483,57 @@ def test_set_groups_to_redis_no_expire(institutions_data, set_test_config):
     mock_store.hset.assert_called_once_with(redis_key, mapping={"updated_at": timestamp, "groups": ",".join(groups)})
     mock_store.persist.assert_called_once_with(redis_key)
     mock_store.expire.assert_not_called()
+
+
+def test_fetch_all_progress_signal_receiver_error(institutions_data, set_test_config, log_capture):
+    num_institutions = 2
+    data = institutions_data(num_institutions)
+    institutions = [Institution(**data[0]), Institution(**data[1])]
+    set_test_config()
+
+    mock_receiver = MagicMock(side_effect=Exception("Receiver error"))
+    with (
+        patch("weko_group_cache_db.groups.connection"),
+        patch("weko_group_cache_db.groups.load_institutions", return_value=institutions),
+        patch("weko_group_cache_db.groups.fetch_and_cache") as mock_fetch_and_cache,
+        patch("weko_group_cache_db.groups.time"),
+        patch("weko_group_cache_db.groups.traceback") as mock_traceback,
+        progress_signal.connected_to(mock_receiver),
+    ):
+        mock_func = MagicMock(side_effect=[2, 3])
+        mock_fetch_and_cache.return_value = mock_func
+
+        fetch_all(toml_path="institutions.toml")
+
+    assert mock_func.call_count == num_institutions
+    assert mock_receiver.call_count == num_institutions + 1
+    assert mock_traceback.print_exc.call_count == num_institutions + 1
+    assert log_capture.records[0].getMessage() == f"Successfully cached 2 groups for {data[0]['fqdn']}."
+    assert log_capture.records[1].getMessage() == f"Successfully cached 3 groups for {data[1]['fqdn']}."
+
+
+def test_fetch_and_cache_executed_signal_receiver_error(institutions_data, set_test_config):
+    data = institutions_data(1)
+    institution = Institution(**data[0])
+    set_test_config()
+    groups = ["jc_group1", "jc_group2"]
+
+    mock_store = MagicMock()
+    mock_receiver = MagicMock(side_effect=Exception("Receiver error"))
+    with (
+        patch("weko_group_cache_db.groups.fetch_map_groups") as mock_fetch,
+        patch("weko_group_cache_db.groups.set_groups_to_redis") as mock_set,
+        patch("weko_group_cache_db.groups.traceback") as mock_traceback,
+        executed_signal.connected_to(mock_receiver),
+    ):
+        mock_fetch.return_value = groups
+        mock_set.return_value = datetime(2025, 1, 1, tzinfo=UTC)
+
+        func = fetch_and_cache()
+        count = func(institution, mock_store)
+
+    assert count == len(groups)
+    mock_fetch.assert_called_once_with(institution)
+    mock_set.assert_called_once_with(institution.fqdn, groups, store=mock_store)
+    mock_receiver.assert_called_once()
+    mock_traceback.print_exc.assert_called_once()

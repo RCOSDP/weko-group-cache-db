@@ -3,10 +3,8 @@
 #
 import typing as t
 
-import pytest
 import toml
 
-from pydantic_core import ValidationError
 from werkzeug.local import LocalProxy
 
 from weko_group_cache_db.config import Settings, _current_config, config, setup_config
@@ -35,16 +33,6 @@ def test_settings_default_values():
     assert settings.REQUEST_RETRY_FACTOR == default_request_retry_factor
     assert settings.REQUEST_RETRY_MAX == default_request_retry_max
     assert settings.REDIS_URL == "redis://localhost:6379/4"
-
-
-def test_settings_missing_required_field():
-    with pytest.raises(ValidationError) as excinfo:
-        Settings()  # pyright: ignore[reportCallIssue]
-
-    errors = excinfo.value.errors()
-    assert len(errors) == 1
-    assert errors[0]["loc"] == ("MAP_GROUPS_API_ENDPOINT",)
-    assert errors[0]["msg"] == "Field required"
 
 
 def test_setup_config(tmp_path, row_config):
@@ -90,11 +78,11 @@ def test_setup_config_overrides_lower_case(tmp_path, row_config):
     assert config_dict == row_config
 
 
-def test_setup_config_invalid_path():
-    with pytest.raises(ValidationError) as excinfo:
-        setup_config("non_existent_config.toml")
+def test_setup_config_dict(row_config):
+    setup_config(row_config)
+    assert t.cast(LocalProxy, config)._get_current_object() is _current_config.get()
 
-    errors = excinfo.value.errors()
-    assert len(errors) == 1
-    assert errors[0]["loc"] == ("MAP_GROUPS_API_ENDPOINT",)
-    assert errors[0]["msg"] == "Field required"
+
+def test_setup_config_instance(row_config):
+    setup_config(Settings(**row_config))
+    assert t.cast(LocalProxy, config)._get_current_object() is _current_config.get()

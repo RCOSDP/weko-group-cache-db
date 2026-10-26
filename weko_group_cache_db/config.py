@@ -4,24 +4,20 @@
 
 """Settings module for weko-group-cache-db."""
 
-import tomllib
 import typing as t
 
 from contextvars import ContextVar
 from pathlib import Path
-
-import rich_click as click
+from typing import overload
 
 from pydantic import BaseModel, computed_field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
+    TomlConfigSettingsSource,
 )
 from werkzeug.local import LocalProxy
-
-if t.TYPE_CHECKING:
-    from pydantic.fields import FieldInfo  # pragma: no cover
 
 
 class Settings(BaseSettings):
@@ -48,7 +44,7 @@ class Settings(BaseSettings):
     If it specified less than 0, it will be considered as no expiration.
     """
 
-    MAP_GROUPS_API_ENDPOINT: str
+    MAP_GROUPS_API_ENDPOINT: str = "https://sample.gakunin.jp/api/groups/"
     """Map groups API endpoint."""
 
     REQUEST_TIMEOUT: t.Annotated[int, "seconds"] = 20
@@ -69,8 +65,8 @@ class Settings(BaseSettings):
     REQUEST_RETRY_MAX: t.Annotated[int | float, "seconds"] = 90
     """Maximum time for exponential backoff during request retries."""
 
-    REDIS_TYPE: t.Literal["redis", "sentinel"] = "redis"
-    """Redis type to use. `redis` or `sentinel` is allowed."""
+    REDIS_TYPE: t.Literal["RedisCache", "RedisSentinelCache"] = "RedisCache"
+    """Redis type to use. `RedisCache` or `RedisSentinelCache` is allowed."""
 
     REDIS_HOST: str = "localhost"
     """Redis service host name."""
@@ -83,7 +79,7 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def REDIS_URL(self) -> str:  # noqa: N802
+    def REDIS_URL(self) -> str:  # ruff: ignore[invalid-function-name]
         """Redis URL for caching group information."""
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB_INDEX}"
 
@@ -95,7 +91,7 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def REDIS_SENTINELS(self) -> list[tuple[str, str]]:  # noqa: N802
+    def REDIS_SENTINELS(self) -> list[tuple[str, str]]:  # ruff: ignore[invalid-function-name]
         """A list of Redis sentinel host names and their ports."""
         return (
             [(sentinel.host, str(sentinel.port)) for sentinel in self.SENTINELS]
@@ -106,7 +102,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="forbid",
         frozen=True,
+        alias_generator=lambda s: s.lower(),
         validate_default=True,
+        validate_by_name=True,
+        validate_by_alias=True,
     )
 
     @classmethod
@@ -158,44 +157,26 @@ class Sentinel(BaseModel):
     """Sentinel port number."""
 
 
-class TomlConfigSettingsSource(PydanticBaseSettingsSource):
-    """TOML configuration settings source."""
-
-    def __init__(self, settings_cls: type[BaseSettings], toml_path: Path) -> None:
-        """Initialize TOML config settings source."""
-        super().__init__(settings_cls)
-        self.toml_path = toml_path
-
-    def get_field_value(  # noqa: D102
-        self, field: FieldInfo, field_name: str
-    ) -> tuple[t.Any, str, bool]: ...
-
-    def __call__(self) -> dict[str, t.Any]:
-        """Load settings from TOML file."""  # noqa: DOC201
-        if not self.toml_path.exists():
-            click.echo("[WARN] Settings file not found. Default values will be used.")
-            click.echo(f"[INFO] Looking for settings file at: {self.toml_path}")
-            return {}
-
-        with self.toml_path.open("rb") as f:
-            data = tomllib.load(f)
-
-        return {k.upper(): v for k, v in data.items()}
-
-    def __repr__(self) -> str:
-        """Representation."""  # noqa: DOC201
-        return (
-            f"TomlConfigSettingsSource(toml_path={self.toml_path})"  # pragma: no cover
-        )
-
-
 _no_config_msg = "Config has not been initialized."
 _current_config: ContextVar[Settings] = ContextVar("current_config")
 
 
-def setup_config(toml_path: str) -> None:
+@overload
+def setup_config(config: dict[str, t.Any]) -> None: ...
+@overload
+def setup_config(config: str) -> None: ...
+@overload
+def setup_config(config: Settings) -> None: ...
+
+
+def setup_config(config: dict[str, t.Any] | str | Settings) -> None:
     """Initialize the global config instance."""
-    _current_config.set(Settings(toml_path=toml_path))  # pyright: ignore[reportCallIssue]
+    if isinstance(config, dict):
+        _current_config.set(Settings(**config))  # pyright: ignore[reportCallIssue]
+    elif isinstance(config, str):
+        _current_config.set(Settings(toml_path=config))  # pyright: ignore[reportCallIssue]
+    else:
+        _current_config.set(config)
 
 
 config = t.cast(Settings, LocalProxy(_current_config, unbound_message=_no_config_msg))

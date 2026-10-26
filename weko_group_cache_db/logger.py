@@ -17,7 +17,7 @@ from werkzeug.local import LocalProxy
 from .config import config
 
 if t.TYPE_CHECKING:
-    from datetime import datetime  # pragma: no cover
+    from datetime import datetime
 
 
 def _log_time_format(datetime: datetime) -> Text:

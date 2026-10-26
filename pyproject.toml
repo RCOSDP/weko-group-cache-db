@@ -1,14 +1,21 @@
+#:schema https://json.schemastore.org/pyproject.json
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14"]
+build-backend = "uv_build"
+
 [project]
 name = "weko-group-cache-db"
-version = "1.0.0rc4"
+version = "1.0.0rc6"
 description = "CLI tool for caching mAP group information on JAIRO Cloud."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "backoff>=2.2.1",
+    "blinker>=1.9.0",
     "inflect>=7.5.0",
     "pydantic-settings>=2.12.0",
-    "redis>=7.0.1",
+    "redis>=6.4.0",
     "requests>=2.32.5",
     "rich-click>=1.9.4",
     "werkzeug>=3.1.3",
@@ -29,6 +36,10 @@ dev = [
     "toml>=0.10.2",
 ]
 
+[tool.uv.build-backend]
+module-name = "weko_group_cache_db"
+module-root = ""
+
 [tool.taskipy.tasks]
 # refer to https://github.com/taskipy/taskipy?tab=readme-ov-file#usage
 test = "pytest"
@@ -46,17 +57,22 @@ addopts = [
 
 [tool.coverage.run]
 source = ["weko_group_cache_db"]
-omit = ["*/__init__.py", "*/tests/*"]
+
+[tool.coverage.report]
+omit = ["__init__.py", "tests/*"]
+exclude_also = [
+  "if t.TYPE_CHECKING:",
+]
 
 [tool.ruff.lint]
 # refer to https://docs.astral.sh/ruff/settings/#lint
 ignore = [
-  "D203",
-  "D213",
-  "TC006",
-  "COM812",
-  "ANN201",
-  "TRY400",
+  "incorrect-blank-line-before-class",
+  "multi-line-summary-second-line",
+  "runtime-cast-value",
+  "missing-trailing-comma",
+  "missing-return-type-undocumented-public-function",
+  "error-instead-of-exception",
 ]
 preview = true
 select = ["ALL"]

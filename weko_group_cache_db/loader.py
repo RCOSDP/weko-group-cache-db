@@ -34,6 +34,9 @@ class InstitutionSource(t.TypedDict):
     fqdn_list_file: t.NotRequired[str | Path]
     """Path to the file containing FQDN list."""
 
+    fqdn_list: t.NotRequired[list[str]]
+    """List of FQDNs."""
+
 
 def load_institutions(**kwargs: t.Unpack[InstitutionSource]) -> list[Institution]:
     """Load institution information from the configured source.
@@ -51,6 +54,10 @@ def load_institutions(**kwargs: t.Unpack[InstitutionSource]) -> list[Institution
     if "directory_path" in kwargs and "fqdn_list_file" in kwargs:
         return load_institutions_from_directory(
             kwargs["directory_path"], kwargs["fqdn_list_file"]
+        )
+    if "directory_path" in kwargs and "fqdn_list" in kwargs:
+        return load_institutions_from_list(
+            kwargs["directory_path"], kwargs["fqdn_list"]
         )
     logger.error("Invalid institution source configuration.")
     return []
@@ -157,8 +164,6 @@ def load_institutions_from_directory(
         list[Institution]: List of Institution objects.
 
     """
-    if isinstance(directory_path, str):
-        directory_path = Path(directory_path)
     if isinstance(fqdn_list_file, str):
         fqdn_list_file = Path(fqdn_list_file)
 
@@ -168,6 +173,25 @@ def load_institutions_from_directory(
             for line in f
             if (L := line.strip()) and not L.startswith("#")
         ]
+    return load_institutions_from_list(directory_path, fqdn_list)
+
+
+def load_institutions_from_list(
+    directory_path: str | Path, fqdn_list: list[str]
+) -> list[Institution]:
+    """Load institution information from the provided FQDN list.
+
+    Arguments:
+        directory_path (str | Path): Path to the directory containing TOML files.
+        fqdn_list (list[str]): List of FQDNs.
+
+    Returns:
+        list[Institution]: List of Institution objects.
+
+    """
+    if isinstance(directory_path, str):
+        directory_path = Path(directory_path)
+
     p = inflect.engine()
     institutions: list[Institution] = []
     with Progress(
@@ -240,7 +264,7 @@ def check_existence_file(institution: Institution) -> bool:
 class Institution(BaseModel):
     """Institution model for loading from TOML file."""
 
-    name: str | None
+    name: str | None = None
     """Name of the institution. Optional."""
 
     fqdn: str

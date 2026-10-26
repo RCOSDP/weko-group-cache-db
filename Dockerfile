@@ -27,7 +27,6 @@ FROM base AS production
 ENV VIRTUAL_ENV="/code/.venv"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-RUN uv sync --no-dev --frozen && \
-    uv pip install .
+RUN uv sync --no-dev --frozen
 
 CMD ["sh", "-c", "COLUMNS=120 exec wgcd run -d /var/mnt -l /var/repositories.txt"]
