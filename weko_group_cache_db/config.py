@@ -79,7 +79,7 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def REDIS_URL(self) -> str:  # noqa: N802
+    def REDIS_URL(self) -> str:  # ruff: ignore[invalid-function-name]
         """Redis URL for caching group information."""
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB_INDEX}"
 
@@ -91,7 +91,7 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def REDIS_SENTINELS(self) -> list[tuple[str, str]]:  # noqa: N802
+    def REDIS_SENTINELS(self) -> list[tuple[str, str]]:  # ruff: ignore[invalid-function-name]
         """A list of Redis sentinel host names and their ports."""
         return (
             [(sentinel.host, str(sentinel.port)) for sentinel in self.SENTINELS]

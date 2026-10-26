@@ -264,6 +264,7 @@ port = 26377
 ```python
 from weko_group_cache_db.signals import executed_signal, progress_signal
 
+
 @progress_signal.connect
 def on_progress(sender, data):
     print(f"{data.status}: {data.done}/{data.total}")

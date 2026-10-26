@@ -4,14 +4,14 @@ target-version = "py314"
 [lint]
 ignore = [
   "D",
-  "S101",
+  "assert",
   "ANN",
-  "COM812",
-  "TC006",
-  "DTZ005",
-  "PLC2701",
-  "SLF001",
-  "SIM300",
+  "missing-trailing-comma",
+  "runtime-cast-value",
+  "call-datetime-now-without-tzinfo",
+  "import-private-name",
+  "private-member-access",
+  "yoda-conditions",
 ]
 preview = true
 select = ["ALL"]

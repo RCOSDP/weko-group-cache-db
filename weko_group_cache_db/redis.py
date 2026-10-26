@@ -22,7 +22,7 @@ def connection() -> Redis:
         ConnectionError: If failed to connect to Redis.
 
     """
-    try:
+    try:  # ruff: ignore[too-many-statements-in-try-clause]
         if config.REDIS_TYPE == "RedisCache":
             store = _redis_connection()
             store.ping()

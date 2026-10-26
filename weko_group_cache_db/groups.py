@@ -279,7 +279,7 @@ def _send_progress_signal(institutions: list[Institution], index: int) -> None:
 
     try:
         progress_signal.send(fetch_all, data=data)
-    except Exception:  # noqa: BLE001
+    except Exception:  # ruff: ignore[blind-except]
         traceback.print_exc()
 
 
@@ -301,5 +301,5 @@ def _send_executed_signal(
 
     try:
         executed_signal.send(fetch_all, data=data)
-    except Exception:  # noqa: BLE001
+    except Exception:  # ruff: ignore[blind-except]
         traceback.print_exc()
