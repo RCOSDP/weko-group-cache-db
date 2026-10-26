@@ -267,11 +267,12 @@ def cache_key(fqdn: str) -> str:
 
 def _send_progress_signal(institutions: list[Institution], index: int) -> None:
     total = len(institutions)
-    status = "started"
-    if index > 0:
-        status = "in_progress"
-    elif index == total:
+    if index >= total:
         status = "completed"
+    elif index > 0:
+        status = "in_progress"
+    else:
+        status = "started"
     current = institutions[index].fqdn if index < total else "N/A"
 
     data = ProgressData(status=status, total=total, done=index, current=current)
